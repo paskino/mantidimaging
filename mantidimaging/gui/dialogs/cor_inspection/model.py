@@ -83,6 +83,7 @@ class CORInspectionDialogModel(object):
     def _recon_iters_preview(self, image):
         iters = self.iterations(image)
         new_params = replace(self.recon_params, num_iter=iters)
+        LOG.info(f"Pixel size: {self.recon_params.pixel_size}")
         return self.reconstructor.single_sino(self.sino, self.initial_cor, self.proj_angles, new_params)
 
     def recon_preview(self, image):
