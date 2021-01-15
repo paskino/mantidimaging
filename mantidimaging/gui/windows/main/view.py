@@ -8,8 +8,8 @@ from uuid import UUID
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QAction, QDialog, QDockWidget, QFileDialog, QLabel, QMenu, QMessageBox
+from PyQt5.QtGui import QIcon, QDragEnterEvent, QDropEvent
+from PyQt5.QtWidgets import QAction, QDialog, QLabel, QMessageBox, QMenu, QDockWidget, QFileDialog
 
 from mantidimaging.core.data import Images
 from mantidimaging.core.utility import finder
@@ -50,7 +50,8 @@ class MainWindowView(BaseMainWindowView):
     actionSampleLoadLog: QAction
     actionLoadProjectionAngles: QAction
     actionLoad180deg: QAction
-    actionLoad: QAction
+    actionLoadDataset: QAction
+    actionLoadImages: QAction
     actionSave: QAction
     actionExit: QAction
 
@@ -75,6 +76,7 @@ class MainWindowView(BaseMainWindowView):
         self.setup_shortcuts()
         self.update_shortcuts()
 
+        self.setAcceptDrops(True)
         base_path = os.path.join(finder.get_external_location(__file__), finder.ROOT_PACKAGE)
 
         if versions.get_conda_installed_label() != "main":
@@ -88,7 +90,8 @@ class MainWindowView(BaseMainWindowView):
             self.show_about()
 
     def setup_shortcuts(self):
-        self.actionLoad.triggered.connect(self.show_load_dialogue)
+        self.actionLoadDataset.triggered.connect(self.show_load_dialogue)
+        self.actionLoadImages.triggered.connect(self.load_image_stack)
         self.actionSampleLoadLog.triggered.connect(self.load_sample_log_dialog)
         self.actionLoad180deg.triggered.connect(self.load_180_deg_dialog)
         self.actionLoadProjectionAngles.triggered.connect(self.load_projection_angles)
@@ -143,6 +146,23 @@ class MainWindowView(BaseMainWindowView):
         self.load_dialogue = MWLoadDialog(self)
         self.load_dialogue.show()
 
+    @staticmethod
+    def _get_file_name(caption: str, file_filter: str) -> str:
+        selected_file, _ = QFileDialog.getOpenFileName(caption=caption,
+                                                       filter=f"{file_filter};;All (*.*)",
+                                                       initialFilter=file_filter)
+        return selected_file
+
+    def load_image_stack(self):
+        # Open file dialog
+        selected_file = self._get_file_name("Image", "Image File (*.tif *.tiff)")
+
+        # Cancel/Close was clicked
+        if selected_file == "":
+            return
+
+        self.presenter.load_image_stack(selected_file)
+
     def load_sample_log_dialog(self):
         stack_selector = StackSelectorDialog(main_window=self,
                                              title="Stack Selector",
@@ -153,10 +173,8 @@ class MainWindowView(BaseMainWindowView):
         stack_to_add_log_to = stack_selector.selected_stack
 
         # Open file dialog
-        file_filter = "Log File (*.txt *.log)"
-        selected_file, _ = QFileDialog.getOpenFileName(caption="Log to be loaded",
-                                                       filter=f"{file_filter};;All (*.*)",
-                                                       initialFilter=file_filter)
+        selected_file = self._get_file_name("Log to be loaded", "Log File (*.txt *.log *.csv)")
+
         # Cancel/Close was clicked
         if selected_file == "":
             return
@@ -176,10 +194,8 @@ class MainWindowView(BaseMainWindowView):
         stack_to_add_180_deg_to = stack_selector.selected_stack
 
         # Open file dialog
-        file_filter = "Image File (*.tif *.tiff)"
-        selected_file, _ = QFileDialog.getOpenFileName(caption="180 Degree Image",
-                                                       filter=f"{file_filter};;All (*.*)",
-                                                       initialFilter=file_filter)
+        selected_file = self._get_file_name("180 Degree Image", "Image File (*.tif *.tiff)")
+
         # Cancel/Close was clicked
         if selected_file == "":
             return
@@ -339,3 +355,25 @@ class MainWindowView(BaseMainWindowView):
 
     def find_images_stack_title(self, images: Images) -> str:
         return self.presenter.get_stack_with_images(images).name
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event: QDropEvent):
+        for url in event.mimeData().urls():
+            file_path = url.toLocalFile()
+            if not os.path.exists(file_path):
+                continue
+            if os.path.isdir(file_path):
+                # Load directory as stack
+                sample_loading = self.presenter.load_stacks_from_folder(file_path)
+                if not sample_loading:
+                    QMessageBox.critical(
+                        self, "Load not possible!", "Please provide a directory that has .tif or .tiff files in it, or "
+                        "a sub directory that do not contain dark, flat, or 180 in their title name, that represents a"
+                        " sample.")
+                    return
+            else:
+                QMessageBox.critical(self, "Load not possible!", "Please drag and drop only folders/directories!")
+                return
