@@ -1,0 +1,1 @@
+include mantidimaging/core/gpu/cuda_image_filters.cu
